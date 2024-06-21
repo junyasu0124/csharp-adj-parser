@@ -4,7 +4,10 @@ import { convertType, parseFunctionType } from "./typeAndVariable";
 export { convertRightSide };
 
 
-const lambdaInputConnectOperator = ['.', ',', '(', ')', '?', ':', '-', '/', '=>', '~', '#', '::'];
+const lambdaInputConnectOperators = new Set(['.', ',', '(', ')', '?', ':', '-', '/', '=>', '~', '#', '::']);
+const noSpacesOperators = new Set(['.', '(', ')', '{', '}', '<', '>', '[', ']', '++', '--', '!', '?.', '!.', '::', '@', '$']);
+const withSpacesOperators = new Set(['?', ':', '=', '+', '+=', '-', '-=', '*', '*=', '/', '/=', '%', '%=', '??', '??=', '<<', '<<=', '>>', '>>=', '>>>', '>>>=', '&', '&=', '^', '^=', '|', '|=', '==', '!=', '<=', '>=', '<', '>', '&&', '||', '=>']);
+const noLeftSpacesRightSpaceOperators = new Set([',', ';']);
 
 function convertRightSide(tokens: Token[], converted: string[]): {
   endAt: number;
@@ -13,35 +16,61 @@ function convertRightSide(tokens: Token[], converted: string[]): {
   const initialConvertedLength = converted.length;
   let lastBoundaryIndex = converted.length;
   let isConst = true;
+  const spaceIndexes: Set<number> = new Set();
 
-  const endAt = parseExpr(tokens, false, false);
+  let endAt = parseExpr(tokens, false, false);
   if (converted[converted.length - 1] !== ';') {
     converted.push(';\r\n');
-    return { endAt: endAt + 1, isConst };
+    endAt++;
   }
-  // ↓仮
-  throw new SyntaxError(tokens[endAt], '; is needed at the end of the line')
+
+  const spaceIndexesArray = Array.from(spaceIndexes);
+  for (let i = spaceIndexesArray.length - 1; i >= 0; i--) {
+    const index = spaceIndexesArray[i];
+    if (index === 0)
+      continue;
+    converted.splice(index, 0, ' ');
+  }
+
   return { endAt, isConst };
 
   function parseExpr(tokens: Token[], isInArgs = false, earlyReturn = false): number {
     let isInTuple = false;
+    let isAfterFn = 0;
+    let afterFnIndex = 0;
+    let currentIsSpace = false;
+    let previousIsSpace = false;
 
     for (let i = 0; i < tokens.length; i++) {
       const current = tokens[i];
-      if (current.category === 'space' || current.category === 'line_break' || current.category === 'comment') {
+
+      previousIsSpace = currentIsSpace;
+
+      if (current.category === 'space') {
+        currentIsSpace = true;
         continue;
-      } else if (current.text === ';' || current.text === ',') {
+      } else {
+        currentIsSpace = false;
+      }
+
+      if (current.category === 'line_break' || current.category === 'comment') {
+        continue;
+      }
+
+      isAfterFn--;
+      if (current.text === ';' || current.text === ',') {
         if (current.text === ',' && isInArgs === false) {
           if (isInTuple) {
             converted.push(')');
             isInTuple = false;
           }
           converted.push(',');
+          spaceIndexes.add(converted.length);
           lastBoundaryIndex = converted.length;
           continue;
         }
         if (isInTuple) {
-          if (converted[converted.length - 1] === ', ') {
+          if (converted[converted.length - 1] === ',') {
             converted.pop();
           }
           converted.push(')');
@@ -53,31 +82,50 @@ function convertRightSide(tokens: Token[], converted: string[]): {
         converted.push(current.text);
         converted.push('(');
         lastBoundaryIndex = converted.length;
+        i++;
+        const firstArgIndex = isNext(token => token.category !== 'space' && token.category !== 'line_break' && token.category !== 'comment', true, i, tokens, false, true) as { result: boolean, index: number };
+        if (firstArgIndex.index === -1)
+          throw new SyntaxError(tokens[i + 2]);
+        for (let j = i + 1; j < firstArgIndex.index; j++) {
+          if (tokens[j].category !== 'space' && tokens[j].category !== 'line_break' && tokens[j].category !== 'comment')
+            throw new SyntaxError(tokens[j]);
+        }
+        i = firstArgIndex.index - 1;
+
+        let pushPeriod = false;
         while (true) {
           i += parseExpr(tokens.slice(i + 1), true) + 1;
           if (tokens.length <= i) {
             break;
           }
+          pushPeriod = false;
           if (tokens[i].text === ',') {
-            converted.push(', ');
+            converted.push(',');
+            spaceIndexes.add(converted.length);
             lastBoundaryIndex = converted.length;
           } else if (tokens[i].text === ';') {
             if (earlyReturn === false && isNext(token => token.category === 'context_keyword' || token.category === undefined, false, i, tokens)) {
-              converted.push(')');
-              converted.push('.');
+              converted.push(')', '.');
+              pushPeriod = true;
             } else {
               converted.push(')');
             }
             break;
           }
         }
-        if (isInArgs)
-          converted.push(', ');
+        if (isInArgs && isNext(token => token.text !== ';', true, i, tokens)) {
+          converted.push(',');
+          spaceIndexes.add(converted.length);
+        }
+
+        if (isInArgs === false && !pushPeriod) {
+          isAfterFn = 1;
+          afterFnIndex = i;
+        }
       } else if (current.text === '(') {
         const isNextTilde = isNext(token => token.text === '~', true, i, tokens, false, true) as { result: boolean, index: number };
         if (isNextTilde.result) {
-          converted.push('(');
-          converted.push('~');
+          converted.push('(', '~');
           i = isNextTilde.index;
           lastBoundaryIndex = converted.length;
           continue;
@@ -106,7 +154,7 @@ function convertRightSide(tokens: Token[], converted: string[]): {
       } else if (current.text === '#') {
         isConst = false;
         if (tokens.length === i - 1) {
-          converted.push('[]');
+          converted.push('[', ']');
         } else if (isNext(token => token.category !== 'operator' || token.text === '++' || token.text === '--', true, i, tokens)) {
           converted.push('[');
           lastBoundaryIndex = converted.length;
@@ -116,20 +164,25 @@ function convertRightSide(tokens: Token[], converted: string[]): {
               break;
             }
             if (tokens[i].text === ',') {
-              converted.push(', ');
+              converted.push(',');
+              spaceIndexes.add(converted.length);
               lastBoundaryIndex = converted.length;
             } else if (tokens[i].text === ';') {
               if (earlyReturn === false && isNext(token => token.category === 'context_keyword' || token.category === undefined, false, i, tokens)) {
-                converted.push(']');
-                converted.push('.');
+                converted.push(']', '.');
               } else {
                 converted.push(']');
               }
               break;
             }
           }
+
+          if (isInArgs === false) {
+            isAfterFn = 1;
+            afterFnIndex = i;
+          }
         } else {
-          converted.push('[]');
+          converted.push('[', ']');
         }
       } else if (current.text === '~') {
         isConst = false;
@@ -137,12 +190,13 @@ function convertRightSide(tokens: Token[], converted: string[]): {
           converted.splice(lastBoundaryIndex, 0, '(');
           isInTuple = true;
         }
-        converted.push(', ');
+        converted.push(',');
+        spaceIndexes.add(converted.length);
       } else if (current.text === '=>') {
         isConst = false;
         let parenthesesCount = 0;
         for (let j = i - 1; j >= 0; j--) {
-          if (operators.includes(tokens[j].text) && lambdaInputConnectOperator.includes(tokens[j].text) === false) {
+          if (operators.includes(tokens[j].text) && lambdaInputConnectOperators.has(tokens[j].text) === false) {
             if (parenthesesCount === 0) {
               converted.splice(j + 1, 0, '(');
               lastBoundaryIndex = j + 1;
@@ -161,7 +215,7 @@ function convertRightSide(tokens: Token[], converted: string[]): {
         }
         converted.push(')');
         if (isInTuple) {
-          if (converted[converted.length - 1] === ', ') {
+          if (converted[converted.length - 1] === ',') {
             converted.pop();
           }
           converted.push(')');
@@ -186,23 +240,36 @@ function convertRightSide(tokens: Token[], converted: string[]): {
           if (nullable)
             fnType.type.nullable = true;
           converted.push(convertType(fnType.type, false, false));
-          const endTokenIndex = tokens.indexOf(removed[fnType.endAt]);
+          const endTokenIndex = tokens.indexOf(removed[fnType.endAt - 1]);
           if (endTokenIndex === -1) {
-            throw new UnhandledError(removed[fnType.endAt]);
+            throw new UnhandledError(removed[fnType.endAt - 1]);
           }
           i = endTokenIndex;
         } else {
           throw new SyntaxError(current);
         }
+      } else if (isAfterFn === 0 && current.category !== 'operator') {
+        return afterFnIndex;
       } else {
         if (current.category === undefined || current.category === 'keyword' || current.category === 'context_keyword')
           isConst = false;
         converted.push(current.text);
+
+        if (previousIsSpace)
+          spaceIndexes.add(converted.length - 1);
+      }
+
+      if (withSpacesOperators.has(converted[converted.length - 1])) {
+        spaceIndexes.add(converted.length - 1);
+        spaceIndexes.add(converted.length);
+      }
+      else if (noLeftSpacesRightSpaceOperators.has(converted[converted.length - 1])) {
+        spaceIndexes.add(converted.length);
       }
     }
 
     if (isInTuple) {
-      if (converted[converted.length - 1] === ', ') {
+      if (converted[converted.length - 1] === ',') {
         converted.pop();
       }
       converted.push(')');

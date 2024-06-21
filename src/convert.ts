@@ -708,7 +708,7 @@ function parse(str: string): string {
           case 'const':
           case '--immut': {
             current.kind = 'keyword.declarator';
-            const varName = isNext(() => true, true, i + 1, tokens, false, true) as { result: boolean, index: number };
+            const varName = isNext(() => true, true, i, tokens, false, true) as { result: boolean, index: number };
             if (varName.index === i + 1 || varName.result === false)
               throw new SyntaxError(current, 'Missing variable name');
 
@@ -752,7 +752,10 @@ function parse(str: string): string {
 
             resetModifiers();
 
-            const rightSide = convertRightSide(tokens.slice(assignmentIndex + 1), converted);
+            const rightSideStartIndex = isNext(() => true, true, assignmentIndex, tokens, false, true) as { result: boolean, index: number };
+            if (rightSideStartIndex.result === false)
+              throw new UnhandledError(tokens[assignmentIndex + 1]);
+            const rightSide = convertRightSide(tokens.slice(rightSideStartIndex.index), converted);
             if (current.text === 'const') {
               if (rightSide.isConst) {
                 converted.splice(declaratorIndex, 0, 'const ');
@@ -767,7 +770,7 @@ function parse(str: string): string {
                 throw new SyntaxError(tokens[varName.index], 'Immutable is only allowed for fields with explicit type');
               converted.splice(declaratorIndex, 0, 'readonly ');
             }
-            i = rightSide.endAt + assignmentIndex + 1;
+            i = rightSide.endAt + rightSideStartIndex.index;
             break;
           }
           case 'prop': {
@@ -1157,14 +1160,20 @@ function parse(str: string): string {
                   if (rightBraceIndex === -1)
                     throw new SyntaxError(removed[i], 'Missing right brace');
 
-                  convertBlock(removed.slice(i, rightBraceIndex), bracketCount + 2, 'fn');
+                  const iAtTokens = tokens.findIndex(s => s.id === removed[i].id);
+                  if (iAtTokens === -1)
+                    throw new UnhandledError(removed[i]);
+                  const rightBraceIndexAtTokens = tokens.findIndex(s => s.id === removed[rightBraceIndex].id);
+                  if (rightBraceIndexAtTokens === -1)
+                    throw new UnhandledError(removed[rightBraceIndex]);
+                  convertBlock(tokens.slice(iAtTokens, rightBraceIndexAtTokens), bracketCount + 2, 'fn');
 
                   converted.push(' '.repeat((bracketCount + 1) * indexCount));
                   converted.push('}\r\n');
 
                   i = rightBraceIndex + 1;
                 } else if (removed[i].text === '=>') {
-                  converted.push(' => ');
+                  converted.push('=> ');
                   let parenthesisCount = 0;
                   let braceCount = 0;
                   let setIndex = -1;
@@ -1256,14 +1265,20 @@ function parse(str: string): string {
                   if (rightBraceIndex === -1)
                     throw new SyntaxError(removed[i], 'Missing right brace');
 
-                  convertBlock(removed.slice(i, rightBraceIndex), bracketCount + 2, 'fn');
+                  const iAtTokens = tokens.findIndex(s => s.id === removed[i].id);
+                  if (iAtTokens === -1)
+                    throw new UnhandledError(removed[i]);
+                  const rightBraceIndexAtTokens = tokens.findIndex(s => s.id === removed[rightBraceIndex].id);
+                  if (rightBraceIndexAtTokens === -1)
+                    throw new UnhandledError(removed[rightBraceIndex]);
+                  convertBlock(tokens.slice(iAtTokens, rightBraceIndexAtTokens), bracketCount + 2, 'fn');
 
                   converted.push(' '.repeat((bracketCount + 1) * indexCount));
                   converted.push('}\r\n');
 
                   i = rightBraceIndex + 1;
                 } else if (removed[i].text === '=>') {
-                  converted.push(' => ');
+                  converted.push('=> ');
                   let parenthesisCount = 0;
                   let braceCount = 1;
                   let setEndIndex = -1;
@@ -1718,8 +1733,6 @@ function findCharLiteral(str: string) {
   };
 }
 function isAccessor(text: string): text is '.' | '?.' | '!.' {
-  // const o = {};
-  // RETURN(o) = o;
   return text === '.' || text === '?.' || text === '!.';
 }
 
@@ -1758,14 +1771,4 @@ function isNext(predicate: (token: Token) => boolean, skipToNonBlankOrComment = 
     return { result: predicate(next), index: tokens.indexOf(next) };
   else
     return predicate(next);
-}
-async function RETURN(t: {}) {
-  await A();
-  return t;
-
-  function A(): Promise<number> {
-    return new Promise((resolve, reject) => {
-      resolve(0);
-    });
-  }
 }
