@@ -1,13 +1,33 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + TS</title>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>C# Adj</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+
+<body>
+  <main id="main">
+    <h1>C# Adj</h1>
+    <p>Convert C# Adj code to C# code.</p>
+    <div id="doWrap">
+      <input type="checkbox" id="doWrapCheckbox" name="doWrap">
+      <label for="doWrapCheckbox">Wrap</label>
+      <input type="checkbox" id="verticalCheckbox" name="vertical">
+      <label for="verticalCheckbox">Vertical</label>
+    </div>
+
+    <div id="inputOutputArea">
+      <div id="inputSelectionRange"></div>
+      <textarea id="inputText" placeholder="Enter a C# Adj code here" spellcheck="false"></textarea>
+      <button id="inputSubmit">Submit</button>
+
+      <textarea id="outputText" readonly placeholder="C# code will be displayed here" spellcheck="false"></textarea>
+    </div>
+  </main>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
 </html>
