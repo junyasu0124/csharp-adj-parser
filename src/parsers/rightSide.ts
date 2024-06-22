@@ -25,6 +25,7 @@ function convertRightSide(tokens: Token[], converted: string[]): {
   }
 
   const spaceIndexesArray = Array.from(spaceIndexes);
+  spaceIndexesArray.sort((a, b) => a - b);
   for (let i = spaceIndexesArray.length - 1; i >= 0; i--) {
     const index = spaceIndexesArray[i];
     if (index === 0)
@@ -36,6 +37,7 @@ function convertRightSide(tokens: Token[], converted: string[]): {
 
   function parseExpr(tokens: Token[], isInArgs = false, earlyReturn = false): number {
     let isInTuple = false;
+    let isAsync = false;
     let isAfterFn = 0;
     let afterFnIndex = 0;
     let currentIsSpace = false;
@@ -138,10 +140,12 @@ function convertRightSide(tokens: Token[], converted: string[]): {
             parenthesesCount--;
             if (parenthesesCount === 0) {
               const leftParenthesisIndexAtConverted = converted.length;
-              converted.push('(');
               const previousConvertedLength = converted.length;
+              converted.push('(');
+              lastBoundaryIndex = converted.length;
               i += parseExpr(tokens.slice(i + 1, j)) + 1;
               if (converted[leftParenthesisIndexAtConverted + 1] === '(' && converted[converted.length - 1] === ')') {
+                shiftSpaceIndexes(leftParenthesisIndexAtConverted);
                 converted.splice(leftParenthesisIndexAtConverted, 1);
               } else {
                 converted.push(')');
@@ -188,6 +192,8 @@ function convertRightSide(tokens: Token[], converted: string[]): {
         isConst = false;
         if (isInTuple === false) {
           converted.splice(lastBoundaryIndex, 0, '(');
+          if (isAsync === false)
+            shiftSpaceIndexes(lastBoundaryIndex);
           isInTuple = true;
         }
         converted.push(',');
@@ -195,11 +201,22 @@ function convertRightSide(tokens: Token[], converted: string[]): {
       } else if (current.text === '=>') {
         isConst = false;
         let parenthesesCount = 0;
+        let isBroken = false;
         for (let j = i - 1; j >= 0; j--) {
-          if (operators.includes(tokens[j].text) && lambdaInputConnectOperators.has(tokens[j].text) === false) {
+          if (operators.includes(tokens[j].text) && lambdaInputConnectOperators.has(tokens[j].text) === false && tokens[j].text !== 'async') {
             if (parenthesesCount === 0) {
+              shiftSpaceIndexes(j + 1);
               converted.splice(j + 1, 0, '(');
               lastBoundaryIndex = j + 1;
+
+              if (isInTuple) {
+                if (converted[converted.length - 1] === ',') {
+                  converted.pop();
+                }
+                converted.push(')');
+                isInTuple = false;
+              }
+              isBroken = true;
               break;
             }
             if (tokens[j].text === '(') {
@@ -208,20 +225,28 @@ function convertRightSide(tokens: Token[], converted: string[]): {
               parenthesesCount++;
             }
           }
-          if (j === 0) {
+        }
+        if (isBroken === false) {
+          if (converted[initialConvertedLength] === 'async') {
+            shiftSpaceIndexes(initialConvertedLength + 2);
+            converted.splice(initialConvertedLength + 1, 0, '(');
+            lastBoundaryIndex = initialConvertedLength;
+          } else {
+            shiftSpaceIndexes(initialConvertedLength);
             converted.splice(initialConvertedLength, 0, '(');
             lastBoundaryIndex = initialConvertedLength;
           }
-        }
-        converted.push(')');
-        if (isInTuple) {
-          if (converted[converted.length - 1] === ',') {
-            converted.pop();
+
+          if (isInTuple) {
+            if (converted[converted.length - 1] === ',') {
+              converted.pop();
+            }
+            converted.push(')');
+            isInTuple = false;
           }
-          converted.push(')');
-          isInTuple = false;
         }
-        converted.push('=>');
+
+        converted.push(')', '=>');
       } else if (current.text === 'fn' && current.category === 'keyword') {
         isConst = false;
         let nullable = false;
@@ -250,6 +275,11 @@ function convertRightSide(tokens: Token[], converted: string[]): {
         }
       } else if (isAfterFn === 0 && current.category !== 'operator') {
         return afterFnIndex;
+      } else if (current.text === 'async') {
+        converted.push('async');
+        lastBoundaryIndex = converted.length;
+        spaceIndexes.add(converted.length);
+        isAsync = true;
       } else {
         if (current.category === undefined || current.category === 'keyword' || current.category === 'context_keyword')
           isConst = false;
@@ -276,5 +306,27 @@ function convertRightSide(tokens: Token[], converted: string[]): {
     }
     lastBoundaryIndex = converted.length;
     return tokens.length;
+  }
+
+  function shiftSpaceIndexes(start: number, shift = 1) {
+    const spaceIndexesArray = Array.from(spaceIndexes);
+    spaceIndexesArray.sort((a, b) => a - b);
+    if (shift > 0) {
+      for (let i = spaceIndexesArray.length - 1; i >= 0; i--) {
+        const index = spaceIndexesArray[i];
+        if (index >= start) {
+          spaceIndexes.delete(index);
+          spaceIndexes.add(index + shift);
+        }
+      }
+    } else {
+      for (let i = 0; i < spaceIndexesArray.length; i++) {
+        const index = spaceIndexesArray[i];
+        if (index >= start) {
+          spaceIndexes.delete(index);
+          spaceIndexes.add(index + shift);
+        }
+      }
+    }
   }
 }

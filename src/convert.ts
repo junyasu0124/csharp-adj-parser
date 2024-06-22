@@ -455,14 +455,14 @@ function parse(str: string): string {
 
             if (modifiers.inheritance !== null) {
               if (modifiers.inheritance[0] !== 'abstract')
-                throw new SyntaxError(modifiers.inheritance[1], `${modifiers.inheritance} is not allowed for class`);
-              converted.push(`${modifiers.inheritance} `);
+                throw new SyntaxError(modifiers.inheritance[1], `${modifiers.inheritance[0]} is not allowed for class`);
+              converted.push(`${modifiers.inheritance[0]} `);
             }
             if (modifiers.refImmut !== null) {
               if (isRefImmutToken(modifiers.refImmut[1]))
-                throw new SyntaxError(modifiers.refImmut[1], `${modifiers.refImmut} is not allowed for class`);
+                throw new SyntaxError(modifiers.refImmut[1], `${modifiers.refImmut[0]} is not allowed for class`);
               else
-                throw new SyntaxError(modifiers.refImmut[1], `${modifiers.refImmut} is not allowed for class`);
+                throw new SyntaxError(modifiers.refImmut[1], `${modifiers.refImmut[0]} is not allowed for class`);
             }
             if (modifiers.async)
               throw new SyntaxError(modifiers.async[1], 'async is not allowed for class');
@@ -557,7 +557,7 @@ function parse(str: string): string {
             }
 
             if (modifiers.inheritance !== null)
-              throw new SyntaxError(modifiers.inheritance[1], `${modifiers.inheritance} is not allowed for struct`);
+              throw new SyntaxError(modifiers.inheritance[1], `${modifiers.inheritance[1]} is not allowed for struct`);
             if (modifiers.refImmut !== null) {
               if (modifiers.refImmut[0] === 'ref')
                 converted.push('ref ');
@@ -566,7 +566,7 @@ function parse(str: string): string {
               else if (modifiers.refImmut[0] === 'immut ref')
                 converted.push('readonly ref ');
               else
-                throw new SyntaxError(modifiers.refImmut[1], `${modifiers.refImmut} is not allowed for struct`);
+                throw new SyntaxError(modifiers.refImmut[1], `${modifiers.refImmut[0]} is not allowed for struct`);
 
             }
             if (modifiers.async)
@@ -603,9 +603,9 @@ function parse(str: string): string {
             }
 
             if (modifiers.inheritance !== null)
-              throw new SyntaxError(modifiers.inheritance[1], `${modifiers.inheritance} is not allowed for function`);
+              throw new SyntaxError(modifiers.inheritance[1], `${modifiers.inheritance[0]} is not allowed for function`);
             if (modifiers.refImmut !== null)
-              throw new SyntaxError(modifiers.refImmut[1], `${modifiers.refImmut} is not allowed for function`);
+              throw new SyntaxError(modifiers.refImmut[1], `${modifiers.refImmut[0]} is not allowed for function`);
             if (modifiers.async)
               converted.push('async ');
             if (modifiers.yield) {
@@ -1417,7 +1417,7 @@ function parse(str: string): string {
               if (modifiers.inheritance[0] === current.text)
                 throw new SyntaxError(current, `Duplicate ${current.text}`);
               else
-                throw new SyntaxError(current, `${current.text} cannot be used with ${modifiers.inheritance}`);
+                throw new SyntaxError(current, `${current.text} cannot be used with ${modifiers.inheritance[0]}`);
             }
             modifiers.inheritance = [current.text, current];
             modifiers.latestModifier = current.text;
