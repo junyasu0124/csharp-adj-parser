@@ -386,7 +386,7 @@ function parse(str: string): string {
 
   return converted.join('') + '\r\n';
 
-  function convertBlock(tokens: Token[], bracketCount: number, container: 'none' | 'namespace' | 'class' | 'struct' | 'fn') {
+  function convertBlock(tokens: Token[], indentLevel: number, container: 'none' | 'namespace' | 'class' | 'struct' | 'fn', changeToYieldReturn = false) {
     const indexCount = 2;
 
     type ModifiersType = {
@@ -435,7 +435,7 @@ function parse(str: string): string {
           i++;
         }
       } else if (current.category == 'keyword') {
-        converted.push(' '.repeat(bracketCount * indexCount));
+        converted.push(' '.repeat(indentLevel * indexCount));
 
         switch (current.text) {
           case 'class': {
@@ -544,9 +544,9 @@ function parse(str: string): string {
               throw new SyntaxError(tokens[leftBraceIndex], 'Missing right brace');
             }
             const block = tokens.slice(leftBraceIndex + 1, rightBraceIndex);
-            convertBlock(block, bracketCount + 1, 'class');
+            convertBlock(block, indentLevel + 1, 'class');
 
-            converted.push(`${' '.repeat(bracketCount * indexCount)}}\r\n`);
+            converted.push(`${' '.repeat(indentLevel * indexCount)}}\r\n`);
 
             i = rightBraceIndex + 1;
             break;
@@ -608,12 +608,8 @@ function parse(str: string): string {
               throw new SyntaxError(modifiers.refImmut[1], `${modifiers.refImmut[0]} is not allowed for function`);
             if (modifiers.async)
               converted.push('async ');
-            if (modifiers.yield) {
-              // 特殊処理
-            }
             if (modifiers.partial)
               converted.push('partial ');
-            resetModifiers();
 
             const fnNameIndex = tokens.findIndex((s, j) => j > i && j < leftBraceIndex && (s.category == undefined || s.category == 'context_keyword'));
             if (fnNameIndex == -1) {
@@ -697,9 +693,11 @@ function parse(str: string): string {
               throw new SyntaxError(tokens[leftBraceIndex], 'Missing right brace');
             }
             const block = tokens.slice(leftBraceIndex + 1, rightBraceIndex);
-            convertBlock(block, bracketCount + 1, 'fn');
+            convertBlock(block, indentLevel + 1, 'fn', modifiers.yield !== null);
 
-            converted.push(`${' '.repeat(bracketCount * indexCount)}}\r\n`);
+            converted.push(`${' '.repeat(indentLevel * indexCount)}}\r\n`);
+
+            resetModifiers();
 
             i = rightBraceIndex + 1;
             break;
@@ -720,7 +718,7 @@ function parse(str: string): string {
             if (colonIndex !== -1) {
               const atMarkIndex = tokens.findIndex((s, j) => j > varName.index && j < assignmentIndex && s.text === '@');
 
-              if (container === 'fn' && atMarkIndex !== -1)
+              if ((container === 'fn') && atMarkIndex !== -1)
                 throw new SyntaxError(tokens[atMarkIndex], 'Accessibility modifier is not allowed in function');
 
               const removed = removeEmptyWords(tokens.slice(colonIndex + 1, atMarkIndex === -1 ? assignmentIndex : atMarkIndex), true);
@@ -755,7 +753,7 @@ function parse(str: string): string {
             const rightSideStartIndex = isNext(() => true, true, assignmentIndex, tokens, false, true) as { result: boolean, index: number };
             if (rightSideStartIndex.result === false)
               throw new UnhandledError(tokens[assignmentIndex + 1]);
-            const rightSide = convertRightSide(tokens.slice(rightSideStartIndex.index), converted);
+            const rightSide = convertRightSide(tokens.slice(rightSideStartIndex.index), converted, convertBlock, indentLevel);
             if (current.text === 'const') {
               if (rightSide.isConst) {
                 converted.splice(declaratorIndex, 0, 'const ');
@@ -875,19 +873,19 @@ function parse(str: string): string {
                   throw new SyntaxError(nextToArrowToken.item, 'Missing right brace');
 
                 converted.push('{\r\n');
-                converted.push(' '.repeat((bracketCount + 1) * indexCount));
+                converted.push(' '.repeat((indentLevel + 1) * indexCount));
                 converted.push('get {\r\n');
-                convertRightSide(tokens.slice(assignmentIndex + 1, rightSideBraceIndex), converted);
+                convertRightSide(tokens.slice(assignmentIndex + 1, rightSideBraceIndex), converted, convertBlock, indentLevel + 1);
                 converted.push('\r\n');
-                converted.push(' '.repeat((bracketCount + 1) * indexCount));
+                converted.push(' '.repeat((indentLevel + 1) * indexCount));
                 converted.push('}\r\n');
-                converted.push(' '.repeat((bracketCount + 1) * indexCount));
+                converted.push(' '.repeat((indentLevel + 1) * indexCount));
                 converted.push('}\r\n');
 
                 i = rightSideBraceIndex;
               } else {
                 converted.push('=> ');
-                const rightSide = convertRightSide(tokens.slice(assignmentIndex + 1), converted);
+                const rightSide = convertRightSide(tokens.slice(assignmentIndex + 1), converted, convertBlock, indentLevel);
                 i = rightSide.endAt + assignmentIndex;
               }
             } else if (atMarkIndex !== -1 && accessorLeftBraceIndex === -1) {
@@ -925,19 +923,19 @@ function parse(str: string): string {
                   throw new SyntaxError(nextToArrowToken.item, 'Missing right brace');
 
                 converted.push('{\r\n');
-                converted.push(' '.repeat((bracketCount + 1) * indexCount));
+                converted.push(' '.repeat((indentLevel + 1) * indexCount));
                 converted.push('get {\r\n');
-                convertBlock(tokens.slice(assignmentIndex + 1, rightSideBraceIndex), bracketCount + 1, 'fn');
+                convertBlock(tokens.slice(assignmentIndex + 1, rightSideBraceIndex), indentLevel + 1, 'fn');
                 converted.push('\r\n');
-                converted.push(' '.repeat((bracketCount + 1) * indexCount));
+                converted.push(' '.repeat((indentLevel + 1) * indexCount));
                 converted.push('}\r\n');
-                converted.push(' '.repeat((bracketCount + 1) * indexCount));
+                converted.push(' '.repeat((indentLevel + 1) * indexCount));
                 converted.push('}\r\n');
 
                 i = rightSideBraceIndex;
               } else {
                 converted.push('=> ');
-                const rightSide = convertRightSide(tokens.slice(assignmentIndex + 1), converted);
+                const rightSide = convertRightSide(tokens.slice(assignmentIndex + 1), converted, convertBlock, indentLevel);
                 i = rightSide.endAt + assignmentIndex;
               }
             } else if (accessorLeftBraceIndex !== -1 && atMarkIndex === -1) {
@@ -958,7 +956,7 @@ function parse(str: string): string {
 
               converted.push(' = ');
 
-              const rightSide = convertRightSide(tokens.slice(assignmentIndex + 1), converted);
+              const rightSide = convertRightSide(tokens.slice(assignmentIndex + 1), converted, convertBlock, indentLevel);
 
               i = rightSide.endAt + assignmentIndex;
             } else if (accessorLeftBraceIndex !== -1 && atMarkIndex !== -1) {
@@ -986,7 +984,7 @@ function parse(str: string): string {
 
               converted.push(' = ');
 
-              const rightSide = convertRightSide(tokens.slice(assignmentIndex + 1), converted);
+              const rightSide = convertRightSide(tokens.slice(assignmentIndex + 1), converted, convertBlock, indentLevel);
 
               i = rightSide.endAt + assignmentIndex;
             } else {
@@ -1113,7 +1111,7 @@ function parse(str: string): string {
                 let i = 1;
 
                 converted.push('{\r\n');
-                converted.push(' '.repeat((bracketCount + 1) * indexCount));
+                converted.push(' '.repeat((indentLevel + 1) * indexCount));
                 let preConverted = [];
                 if (removed[i].text === 'immut') {
                   preConverted.push('readonly ');
@@ -1166,9 +1164,9 @@ function parse(str: string): string {
                   const rightBraceIndexAtTokens = tokens.findIndex(s => s.id === removed[rightBraceIndex].id);
                   if (rightBraceIndexAtTokens === -1)
                     throw new UnhandledError(removed[rightBraceIndex]);
-                  convertBlock(tokens.slice(iAtTokens, rightBraceIndexAtTokens), bracketCount + 2, 'fn');
+                  convertBlock(tokens.slice(iAtTokens, rightBraceIndexAtTokens), indentLevel + 2, 'fn');
 
-                  converted.push(' '.repeat((bracketCount + 1) * indexCount));
+                  converted.push(' '.repeat((indentLevel + 1) * indexCount));
                   converted.push('}\r\n');
 
                   i = rightBraceIndex + 1;
@@ -1197,10 +1195,10 @@ function parse(str: string): string {
                     withoutSet = true;
                   }
 
-                  convertRightSide(removed.slice(i + 1, setIndex), converted);
+                  convertRightSide(removed.slice(i + 1, setIndex), converted, convertBlock, indentLevel + 2);
 
                   if (withoutSet) {
-                    converted.push(' '.repeat((bracketCount + 2) * indexCount));
+                    converted.push(' '.repeat((indentLevel + 2) * indexCount));
                     converted.push('}\r\n');
 
                     return { hasModifiers: hasModifiers };
@@ -1214,7 +1212,7 @@ function parse(str: string): string {
                 if (removed[i].text === ',' || removed[i].text === ';')
                   i++;
 
-                converted.push(' '.repeat((bracketCount + 1) * indexCount));
+                converted.push(' '.repeat((indentLevel + 1) * indexCount));
                 preConverted = [];
                 if (removed[i].text === 'immut') {
                   preConverted.push('readonly ');
@@ -1225,7 +1223,7 @@ function parse(str: string): string {
                   preConverted.push('set ');
                   i++;
                 } else if (removed[i].text === '}') {
-                  preConverted.push(' '.repeat((bracketCount + 1) * indexCount));
+                  preConverted.push(' '.repeat((indentLevel + 1) * indexCount));
                   preConverted.push('}');
                   return { hasModifiers: hasModifiers };
                 } else
@@ -1271,9 +1269,9 @@ function parse(str: string): string {
                   const rightBraceIndexAtTokens = tokens.findIndex(s => s.id === removed[rightBraceIndex].id);
                   if (rightBraceIndexAtTokens === -1)
                     throw new UnhandledError(removed[rightBraceIndex]);
-                  convertBlock(tokens.slice(iAtTokens, rightBraceIndexAtTokens), bracketCount + 2, 'fn');
+                  convertBlock(tokens.slice(iAtTokens, rightBraceIndexAtTokens), indentLevel + 2, 'fn');
 
-                  converted.push(' '.repeat((bracketCount + 1) * indexCount));
+                  converted.push(' '.repeat((indentLevel + 1) * indexCount));
                   converted.push('}\r\n');
 
                   i = rightBraceIndex + 1;
@@ -1300,14 +1298,14 @@ function parse(str: string): string {
                     setEndIndex = end - start - 1;
                   }
 
-                  convertRightSide(removed.slice(i + 1, setEndIndex), converted);
+                  convertRightSide(removed.slice(i + 1, setEndIndex), converted, convertBlock, indentLevel + 2);
 
                   i = setEndIndex;
                 } else {
                   throw new SyntaxError(removed[i]);
                 }
 
-                converted.push(' '.repeat(bracketCount * indexCount));
+                converted.push(' '.repeat(indentLevel * indexCount));
                 converted.push('}');
                 return { hasModifiers: hasModifiers };
               }
@@ -1510,11 +1508,18 @@ function parse(str: string): string {
             modifiers.latestModifier = current.text;
             break;
           }
+          case 'return': {
+            if (changeToYieldReturn)
+              converted.push('yield return ');
+            else
+              converted.push('return ');
+            break;
+          }
           default: {
             if (isModifiersChanged())
               throw new SyntaxError(current);
 
-            const rightSide = convertRightSide(tokens.slice(i), converted);
+            const rightSide = convertRightSide(tokens.slice(i), converted, convertBlock, indentLevel);
             i += rightSide.endAt;
             break;
           }

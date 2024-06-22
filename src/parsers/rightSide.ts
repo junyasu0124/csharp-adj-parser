@@ -9,7 +9,7 @@ const noSpacesOperators = new Set(['.', '(', ')', '{', '}', '<', '>', '[', ']', 
 const withSpacesOperators = new Set(['?', ':', '=', '+', '+=', '-', '-=', '*', '*=', '/', '/=', '%', '%=', '??', '??=', '<<', '<<=', '>>', '>>=', '>>>', '>>>=', '&', '&=', '^', '^=', '|', '|=', '==', '!=', '<=', '>=', '<', '>', '&&', '||', '=>']);
 const noLeftSpacesRightSpaceOperators = new Set([',', ';']);
 
-function convertRightSide(tokens: Token[], converted: string[]): {
+function convertRightSide(tokens: Token[], converted: string[], convertBlockFunc: (tokens: Token[], indentLevel: number, container: 'none' | 'namespace' | 'class' | 'struct' | 'fn', changeToYieldReturn: boolean) => void, indentLevel: number): {
   endAt: number;
   isConst: boolean;
 } {
@@ -247,6 +247,32 @@ function convertRightSide(tokens: Token[], converted: string[]): {
         }
 
         converted.push(')', '=>');
+        spaceIndexes.add(converted.length - 1);
+
+        const next = isNext(token => token.text === '{', true, i, tokens, false, true) as { result: boolean, index: number };
+        if (next.result) {
+          spaceIndexes.add(converted.length);
+          converted.push('{\r\n');
+          let braceCount = 1;
+          let endBraceIndex = -1;
+          for (let j = next.index + 1; j < tokens.length; j++) {
+            if (tokens[j].text === '{') {
+              braceCount++;
+            } else if (tokens[j].text === '}') {
+              braceCount--;
+              if (braceCount === 0) {
+                endBraceIndex = j;
+                break;
+              }
+            }
+          }
+          if (endBraceIndex === -1)
+            throw new SyntaxError(tokens[i], 'Missing right brace');
+          convertBlockFunc(tokens.slice(i + 1, endBraceIndex), indentLevel + 1, 'fn', false);
+          converted.push(' '.repeat(indentLevel * 2));
+          converted.push('}');
+          i = endBraceIndex;
+        }
       } else if (current.text === 'fn' && current.category === 'keyword') {
         isConst = false;
         let nullable = false;
