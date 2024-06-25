@@ -1,15 +1,15 @@
-import { SyntaxError, UnhandledError, Token, isNext, isMethodKeyword, operators, removeEmptyWords } from "../convert";
+import { SyntaxError, UnhandledError, Token, isNext, isMethodKeyword, operators, removeEmptyWords, BlockType } from "../convert";
 import { convertType, parseFunctionType } from "./typeAndVariable";
 
-export { convertRightSide };
+export { convertRightSide, noSpacesOperators, withSpacesOperators, noLeftSpacesRightSpaceOperators };
 
 
 const lambdaInputConnectOperators = new Set(['.', ',', '(', ')', '?', ':', '-', '/', '=>', '~', '#', '::']);
-const noSpacesOperators = new Set(['.', '(', ')', '{', '}', '<', '>', '[', ']', '++', '--', '!', '?.', '!.', '::', '@', '$']);
-const withSpacesOperators = new Set(['?', ':', '=', '+', '+=', '-', '-=', '*', '*=', '/', '/=', '%', '%=', '??', '??=', '<<', '<<=', '>>', '>>=', '>>>', '>>>=', '&', '&=', '^', '^=', '|', '|=', '==', '!=', '<=', '>=', '<', '>', '&&', '||', '=>']);
+const noSpacesOperators = new Set(['.', '(', ')', '<', '>', '[', ']', '++', '--', '!', '?.', '!.', '::', '@', '$']);
+const withSpacesOperators = new Set(['{', '}', '?', ':', '=', '+', '+=', '-', '-=', '*', '*=', '/', '/=', '%', '%=', '??', '??=', '<<', '<<=', '>>', '>>=', '>>>', '>>>=', '&', '&=', '^', '^=', '|', '|=', '==', '!=', '<=', '>=', '<', '>', '&&', '||', '=>']);
 const noLeftSpacesRightSpaceOperators = new Set([',', ';']);
 
-function convertRightSide(tokens: Token[], converted: string[], convertBlockFunc: (tokens: Token[], indentLevel: number, container: 'none' | 'namespace' | 'class' | 'struct' | 'fn', changeToYieldReturn: boolean) => void, indentLevel: number): {
+function convertRightSide(tokens: Token[], converted: string[], convertBlockFunc: (tokens: Token[], indentLevel: number, container: BlockType, changeToYieldReturn: boolean) => void, indentLevel: number, indentCount: number): {
   endAt: number;
   isConst: boolean;
 } {
@@ -269,7 +269,7 @@ function convertRightSide(tokens: Token[], converted: string[], convertBlockFunc
           if (endBraceIndex === -1)
             throw new SyntaxError(tokens[i], 'Missing right brace');
           convertBlockFunc(tokens.slice(i + 1, endBraceIndex), indentLevel + 1, 'fn', false);
-          converted.push(' '.repeat(indentLevel * 2));
+          converted.push(' '.repeat(indentLevel * indentCount));
           converted.push('}');
           i = endBraceIndex;
         }
@@ -306,6 +306,8 @@ function convertRightSide(tokens: Token[], converted: string[], convertBlockFunc
         lastBoundaryIndex = converted.length;
         spaceIndexes.add(converted.length);
         isAsync = true;
+      } else if (current.text === 'switch') {
+        throw new Error('Not implemented');
       } else {
         if (current.category === undefined || current.category === 'keyword' || current.category === 'context_keyword')
           isConst = false;

@@ -1,4 +1,4 @@
-import { parse } from "./convert";
+import { convert } from "./convert";
 
 window.addEventListener('DOMContentLoaded', () => {
   const inputText = document.getElementById('inputText') as HTMLTextAreaElement;
@@ -39,7 +39,7 @@ window.addEventListener('DOMContentLoaded', () => {
   inputSubmit.onclick = () => {
     localStorage.setItem('inputText', inputText.value);
 
-    const result = parse(inputText.value);
+    const result = convert(inputText.value);
 
     outputText.value = result;
   };
