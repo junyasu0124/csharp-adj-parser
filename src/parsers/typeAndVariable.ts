@@ -7,6 +7,7 @@ export { searchArgsAndReturned, convertType, parseType, parseFunctionType };
 interface Variable {
   name: string;
   type: Type;
+  modifier?: 'ref' | 'ref readonly' | 'in' | 'out' | 'params';
 }
 type Type = NormalType | ArrayType | FunctionType | GenericsType | TupleType;
 interface NormalType {
@@ -73,24 +74,47 @@ function parseVariable(tokens: Token[], isFnArg: boolean, earlyReturn: boolean, 
     tokens[0].kind = 'operator.discard';
     return {
       variable: null,
-      endAt: 1
+      endAt: 1,
     };
   }
-  if (tokens[1].text !== ':') {
-    throw new SyntaxError(tokens[0], 'Missing colon');
-  }
-  tokens[0].kind = isFnArg ? 'name.fn-arg' : 'name.var';
-  tokens[1].kind = 'operator.type-annotation';
-  if (tokens.length < 3) {
-    throw new SyntaxError(tokens[1], 'Missing type');
-  }
-  const type = parseType(tokens.slice(2), earlyReturn, nextEarlyReturn);
-  if (type.type == null)
+  if (tokens.length === 1)
     throw new SyntaxError(tokens[0], 'Missing type');
 
+  let modifier: 'ref' | 'ref readonly' | 'in' | 'out' | 'params' | undefined;
+  let colonIndex: number;
+  if (name === 'ref') {
+    if (tokens[1].text === 'immut') {
+      modifier = 'ref readonly';
+      name = tokens[2].text;
+      colonIndex = 3;
+    } else {
+      modifier = 'ref';
+      name = tokens[1].text;
+      colonIndex = 2;
+    }
+  } else if (name === 'in' || name === 'out' || name === 'params') {
+    modifier = name as 'in' | 'out' | 'params';
+    name = tokens[1].text;
+    colonIndex = 2;
+  } else {
+    modifier = undefined;
+    colonIndex = 1;
+  }
+  if (tokens[colonIndex].text !== ':') {
+    throw new SyntaxError(tokens[0], 'Missing colon');
+  }
+  tokens[colonIndex].kind = 'operator.type-annotation';
+  tokens[colonIndex - 1].kind = isFnArg ? 'name.fn-arg' : 'name.var';
+  if (tokens.length < colonIndex + 2) {
+    throw new SyntaxError(tokens[colonIndex], 'Missing type');
+  }
+  const type = parseType(tokens.slice(colonIndex + 1), earlyReturn, nextEarlyReturn);
+  if (type.type == null)
+    throw new SyntaxError(tokens[colonIndex], 'Missing type');
+
   return {
-    variable: { name, type: type.type },
-    endAt: 2 + type.endAt
+    variable: { name: name, type: type.type, modifier },
+    endAt: colonIndex + type.endAt + 1,
   };
 }
 

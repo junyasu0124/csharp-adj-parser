@@ -1,4 +1,4 @@
-import { SyntaxError, UnhandledError, Token, isNext, isMethodKeyword, operators, removeEmptyWords, BlockType, isExprKeyword, convertBlock, converted, indentCount } from "../convert";
+import { SyntaxError, UnhandledError, Token, isNext, isMethodKeyword, operators, removeEmptyWords, isExprKeyword, convertBlock, converted, indentCount } from "../convert";
 import { convertSwitch } from "./switch";
 import { Type, convertType, parseFunctionType, parseType } from "./typeAndVariable";
 
