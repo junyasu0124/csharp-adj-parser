@@ -1,19 +1,31 @@
-import { SyntaxError, UnhandledError, Token, isNext, isMethodKeyword, operators, removeEmptyWords, BlockType } from "../convert";
-import { convertType, parseFunctionType } from "./typeAndVariable";
+import { SyntaxError, UnhandledError, Token, isNext, isMethodKeyword, operators, removeEmptyWords, BlockType, isExprKeyword, convertBlock, converted, indentCount } from "../convert";
+import { convertSwitch } from "./switch";
+import { Type, convertType, parseFunctionType, parseType } from "./typeAndVariable";
 
-export { convertRightSide, noSpacesOperators, withSpacesOperators, noLeftSpacesRightSpaceOperators };
+export { convertRightSide, noSpacesOperators, withSpacesOperators, noLeftSpacesRightSpaceOperators, leftSpaceNoRightSpacesOperators };
 
 
 const lambdaInputConnectOperators = new Set(['.', ',', '(', ')', '?', ':', '-', '/', '=>', '~', '#', '::']);
 const noSpacesOperators = new Set(['.', '(', ')', '<', '>', '[', ']', '++', '--', '!', '?.', '!.', '::', '@', '$']);
-const withSpacesOperators = new Set(['{', '}', '?', ':', '=', '+', '+=', '-', '-=', '*', '*=', '/', '/=', '%', '%=', '??', '??=', '<<', '<<=', '>>', '>>=', '>>>', '>>>=', '&', '&=', '^', '^=', '|', '|=', '==', '!=', '<=', '>=', '<', '>', '&&', '||', '=>']);
-const noLeftSpacesRightSpaceOperators = new Set([',', ';']);
-
-function convertRightSide(tokens: Token[], converted: string[], convertBlockFunc: (tokens: Token[], indentLevel: number, container: BlockType, changeToYieldReturn: boolean) => void, indentLevel: number, indentCount: number): {
+const withSpacesOperators = new Set(['?', ':', '=', '+', '+=', '-', '-=', '*', '*=', '/', '/=', '%', '%=', '??', '??=', '<<', '<<=', '>>', '>>=', '>>>', '>>>=', '&', '&=', '^', '^=', '|', '|=', '==', '!=', '<=', '>=', '<', '>', '&&', '||', '=>']);
+const noLeftSpacesRightSpaceOperators = new Set([',', ';', '{']);
+const leftSpaceNoRightSpacesOperators = new Set(['}']);
+/**
+ * 
+ * @param tokens 
+ * @param converted 
+ * @param assigningVar 変数に代入する形式であるかどうか、代入する場合は{ name: 変数の名前, type: trueならば型推論可能、そうでない場合は変数の型 }、代入しない場合はnull
+ * @param canBlockSwitch switchを式ではなくブロックの形に変換できるかどうか（式: a switch {}、ブロック: switch(a) {}）
+ * @param insertIndex 自動生成の関数を挿入するconvertedにおけるインデックス
+ * @param convertBlockFunc 
+ * @param indentLevel 
+ * @param indentCount 
+ * @returns 
+ */
+function convertRightSide(tokens: Token[], insertIndex: number, assigningType: null | true | Type, indentLevel: number, changeToYieldReturn = false): {
   endAt: number;
   isConst: boolean;
 } {
-  const initialConvertedLength = converted.length;
   let lastBoundaryIndex = converted.length;
   let isConst = true;
   const spaceIndexes: Set<number> = new Set();
@@ -21,7 +33,6 @@ function convertRightSide(tokens: Token[], converted: string[], convertBlockFunc
   let endAt = parseExpr(tokens, false, false);
   if (converted[converted.length - 1] !== ';') {
     converted.push(';\r\n');
-    endAt++;
   }
 
   const spaceIndexesArray = Array.from(spaceIndexes);
@@ -36,6 +47,7 @@ function convertRightSide(tokens: Token[], converted: string[], convertBlockFunc
   return { endAt, isConst };
 
   function parseExpr(tokens: Token[], isInArgs = false, earlyReturn = false): number {
+    const initialConvertedLength = converted.length;
     let isInTuple = false;
     let isAsync = false;
     let isAfterFn = 0;
@@ -60,7 +72,7 @@ function convertRightSide(tokens: Token[], converted: string[], convertBlockFunc
       }
 
       isAfterFn--;
-      if (current.text === ';' || current.text === ',') {
+      if (current.text === ';' || current.text === ',' || current.text === '{' || current.text === '}') {
         if (current.text === ',' && isInArgs === false) {
           if (isInTuple) {
             converted.push(')');
@@ -78,51 +90,75 @@ function convertRightSide(tokens: Token[], converted: string[], convertBlockFunc
           converted.push(')');
         }
         lastBoundaryIndex = converted.length;
+        if (current.text === '{' || current.text === '}')
+          return i - 1;
         return i;
-      } else if (isMethodKeyword(current.kind)) {
-        isConst = false;
-        converted.push(current.text);
-        converted.push('(');
-        lastBoundaryIndex = converted.length;
-        i++;
-        const firstArgIndex = isNext(token => token.category !== 'space' && token.category !== 'line_break' && token.category !== 'comment', true, i, tokens, false, true) as { result: boolean, index: number };
-        if (firstArgIndex.index === -1)
-          throw new SyntaxError(tokens[i + 2]);
-        for (let j = i + 1; j < firstArgIndex.index; j++) {
-          if (tokens[j].category !== 'space' && tokens[j].category !== 'line_break' && tokens[j].category !== 'comment')
-            throw new SyntaxError(tokens[j]);
-        }
-        i = firstArgIndex.index - 1;
+      } else if (isMethodKeyword(current.kind) || isExprKeyword(current.kind)) {
+        if (current.text === 'default' && isNext(token => token.category === undefined || token.category === 'context_keyword' || token.text === '(', true, i, tokens) === false) {
+          converted.push('default');
+          lastBoundaryIndex = converted.length - 1;
+        } else if (current.kind === 'keyword.block-or-method' && (isNext(token => token.text === ';' || token.text === '{', true, i, tokens))) {
+          converted.push(current.text);
+          converted.push(' {');
+        } else {
+          const isMethod = isMethodKeyword(current.kind);
+          let fnStartIndex = converted.length;
+          isConst = false;
+          converted.push(current.text);
+          if (isMethod)
+            converted.push('(');
+          else
+            converted.push(' ');
+          lastBoundaryIndex = converted.length;
+          const firstArgIndex = isNext(() => true, true, i, tokens, false, true) as { result: boolean, index: number };
+          if (firstArgIndex.index === -1)
+            throw new SyntaxError(tokens[i - 1]);
+          i = firstArgIndex.index - 1;
 
-        let pushPeriod = false;
-        while (true) {
-          i += parseExpr(tokens.slice(i + 1), true) + 1;
-          if (tokens.length <= i) {
-            break;
-          }
-          pushPeriod = false;
-          if (tokens[i].text === ',') {
-            converted.push(',');
-            spaceIndexes.add(converted.length);
-            lastBoundaryIndex = converted.length;
-          } else if (tokens[i].text === ';') {
-            if (earlyReturn === false && isNext(token => token.category === 'context_keyword' || token.category === undefined, false, i, tokens)) {
+          let pushPeriod = false;
+          if (tokens[firstArgIndex.index].text === ';') {
+            i = firstArgIndex.index;
+            if (isMethod && earlyReturn === false && isNext(token => token.category === 'context_keyword' || token.category === undefined, false, firstArgIndex.index, tokens)) {
               converted.push(')', '.');
               pushPeriod = true;
             } else {
-              converted.push(')');
+              if (isMethod)
+                converted.push(')');
             }
-            break;
+          } else {
+            while (true) {
+              i += parseExpr(tokens.slice(i + 1), true) + 1;
+              if (tokens.length <= i) {
+                break;
+              }
+              pushPeriod = false;
+              if (tokens[i].text === ',') {
+                converted.push(',');
+                spaceIndexes.add(converted.length);
+                lastBoundaryIndex = converted.length;
+              } else if (tokens[i].text === ';') {
+                if (isMethod && earlyReturn === false && isNext(token => token.category === 'context_keyword' || token.category === undefined, false, i, tokens)) {
+                  converted.push(')', '.');
+                  pushPeriod = true;
+                } else {
+                  if (isMethod)
+                    converted.push(')');
+                }
+                break;
+              }
+            }
           }
-        }
-        if (isInArgs && isNext(token => token.text !== ';', true, i, tokens)) {
-          converted.push(',');
-          spaceIndexes.add(converted.length);
-        }
+          if (isInArgs && isNext(token => token.text !== ';', true, i, tokens)) {
+            converted.push(',');
+            spaceIndexes.add(converted.length);
+          }
 
-        if (isInArgs === false && !pushPeriod) {
-          isAfterFn = 1;
-          afterFnIndex = i;
+          if (isInArgs === false && !pushPeriod) {
+            isAfterFn = 1;
+            afterFnIndex = i;
+          }
+
+          lastBoundaryIndex = fnStartIndex;
         }
       } else if (current.text === '(') {
         const isNextTilde = isNext(token => token.text === '~', true, i, tokens, false, true) as { result: boolean, index: number };
@@ -132,13 +168,13 @@ function convertRightSide(tokens: Token[], converted: string[], convertBlockFunc
           lastBoundaryIndex = converted.length;
           continue;
         }
-        let parenthesesCount = 1;
+        let parenthesisCount = 1;
         for (let j = i + 1; j < tokens.length; j++) {
           if (tokens[j].text === '(') {
-            parenthesesCount++;
+            parenthesisCount++;
           } else if (tokens[j].text === ')') {
-            parenthesesCount--;
-            if (parenthesesCount === 0) {
+            parenthesisCount--;
+            if (parenthesisCount === 0) {
               const leftParenthesisIndexAtConverted = converted.length;
               const previousConvertedLength = converted.length;
               converted.push('(');
@@ -268,12 +304,12 @@ function convertRightSide(tokens: Token[], converted: string[], convertBlockFunc
           }
           if (endBraceIndex === -1)
             throw new SyntaxError(tokens[i], 'Missing right brace');
-          convertBlockFunc(tokens.slice(i + 1, endBraceIndex), indentLevel + 1, 'fn', false);
+          convertBlock(tokens.slice(i + 1, endBraceIndex), 'fn', indentLevel + 1, false, false);
           converted.push(' '.repeat(indentLevel * indentCount));
           converted.push('}');
           i = endBraceIndex;
         }
-      } else if (current.text === 'fn' && current.category === 'keyword') {
+      } else if (current.text === 'fn' && current.category === 'keyword' && isNext(token => token.text === ':' || token.text === '?', true, i, tokens, false, false) === true) {
         isConst = false;
         let nullable = false;
         if (tokens.length > i + 1 && tokens[i + 1].text === '?') {
@@ -299,7 +335,16 @@ function convertRightSide(tokens: Token[], converted: string[], convertBlockFunc
         } else {
           throw new SyntaxError(current);
         }
-      } else if (isAfterFn === 0 && current.category !== 'operator') {
+      } else if (current.text === ':') {
+        isConst = false;
+        const removed = removeEmptyWords(tokens.slice(i + 1), true);
+        const type = parseType(removed, false, true, false);
+        if (type.type === null || type.endAt === 0)
+          throw new SyntaxError(removed[0], 'Missing type');
+        converted.splice(converted.length - 1, 0, convertType(type.type, false, false));
+        spaceIndexes.add(converted.length - 1);
+        i = tokens.findIndex(token => token.id === removed[type.endAt - 1].id);
+      } else if (isAfterFn === 0 && ((current.category !== 'operator' && current.kind !== 'keyword.operator') || current.text === '{' || current.text === '}' || current.text === '(' || current.text === ')')) {
         return afterFnIndex;
       } else if (current.text === 'async') {
         converted.push('async');
@@ -307,7 +352,24 @@ function convertRightSide(tokens: Token[], converted: string[], convertBlockFunc
         spaceIndexes.add(converted.length);
         isAsync = true;
       } else if (current.text === 'switch') {
-        throw new Error('Not implemented');
+        let braceCount = 0;
+        let endBraceIndex = -1;
+        for (let j = i + 1; j < tokens.length; j++) {
+          if (tokens[j].text === '{') {
+            braceCount++;
+          } else if (tokens[j].text === '}') {
+            braceCount--;
+            if (braceCount === 0) {
+              endBraceIndex = j;
+              break;
+            }
+          }
+        }
+        if (endBraceIndex === -1)
+          throw new SyntaxError(tokens[i], 'Missing right brace');
+
+        const endAt = convertSwitch(tokens.slice(i, endBraceIndex + 1), insertIndex, assigningType, indentLevel, false);
+        i = endAt;
       } else {
         if (current.category === undefined || current.category === 'keyword' || current.category === 'context_keyword')
           isConst = false;
@@ -323,6 +385,8 @@ function convertRightSide(tokens: Token[], converted: string[], convertBlockFunc
       }
       else if (noLeftSpacesRightSpaceOperators.has(converted[converted.length - 1])) {
         spaceIndexes.add(converted.length);
+      } else if (leftSpaceNoRightSpacesOperators.has(converted[converted.length - 1])) {
+        spaceIndexes.add(converted.length - 1);
       }
     }
 
@@ -332,6 +396,7 @@ function convertRightSide(tokens: Token[], converted: string[], convertBlockFunc
       }
       converted.push(')');
     }
+
     lastBoundaryIndex = converted.length;
     return tokens.length;
   }
