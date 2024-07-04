@@ -1,7 +1,7 @@
 import { SyntaxError, Token, isAccessor, removeEmptyWords } from '../convert';
 
-export type { Type };
-export { searchArgsAndReturned, convertType, parseType, parseFunctionType };
+export type { Variable, Type };
+export { parseArgsAndReturned, parseArgs, convertType, parseType, parseFunctionType };
 
 
 interface Variable {
@@ -54,12 +54,33 @@ function isBuiltinType(type: string) {
 }
 
 
-function searchArgsAndReturned(tokens: Token[]) {
+function parseArgsAndReturned(tokens: Token[]) {
   tokens = removeEmptyWords(tokens, true);
 
   const argsAndReturned = parseFunctionType(tokens, true, true, false, false);
 
   return argsAndReturned.type;
+}
+function parseArgs(tokens: Token[]) {
+  tokens = removeEmptyWords(tokens, true);
+
+  const args: Variable[] = [];
+  let i = 0;
+  while (i < tokens.length) {
+    const variable = parseVariable(tokens.slice(i), true, true, false);
+    if (variable.variable === null)
+      throw new SyntaxError(tokens[i]);
+    args.push(variable.variable);
+    i += variable.endAt;
+    if (i >= tokens.length)
+      break;
+    if (tokens[i].text === ',')
+      i++;
+    else
+      throw new SyntaxError(tokens[i]);
+  }
+
+  return args;
 }
 
 function parseVariable(tokens: Token[], isFnArg: boolean, earlyReturn: boolean, nextEarlyReturn: boolean): {

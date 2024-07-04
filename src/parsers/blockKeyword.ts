@@ -118,7 +118,7 @@ function convertBlockKeyword(tokens: Token[], insertIndex: number, assigningType
       }
       if (startIndex.index === i)
         throw new SyntaxError(tokens[i]);
-      const endAt = convertRightSide(tokens.slice(startIndex.index), insertIndex, null, indentLevel, false);
+      const endAt = convertRightSide(tokens.slice(startIndex.index), insertIndex, null, false, indentLevel);
       if (converted[converted.length - 1] === ';\r\n')
         converted.pop();
       converted.push(')');
@@ -140,7 +140,7 @@ function convertBlockKeyword(tokens: Token[], insertIndex: number, assigningType
           const nextNextIndex = isNext(() => true, true, nextIndex.index, tokens, false, true) as { result: boolean, index: number };
           if (nextNextIndex.index === -1)
             throw new SyntaxError(tokens[i]);
-          const endAt = convertRightSide(tokens.slice(nextNextIndex.index), insertIndex, null, indentLevel, false);
+          const endAt = convertRightSide(tokens.slice(nextNextIndex.index), insertIndex, null, false, indentLevel);
           if (converted[converted.length - 1] === ';\r\n')
             converted.pop();
           converted.push(')');

@@ -10,15 +10,15 @@ export { convertSwitch }
  * 
  * @param tokens space, line_break, commentを除く前のswitch文のみを切り出したトークン、先頭はswitchであること
  * @param converted 
- * @param assigningVar 変数に代入する形式であるかどうか、代入する場合は{ name: 変数の名前, type: trueならば型推論可能、そうでない場合は変数の型 }、代入しない場合はnull
- * @param canBlockSwitch switchを式ではなくブロックの形に変換できるかどうか（式: a switch {}、ブロック: switch(a) {}）
  * @param insertIndex 自動生成の関数を挿入するconvertedにおけるインデックス
- * @param convertBlockFunc 
- * @param indentLevel 
+ * @param assigningVar 変数に代入する形式であるかどうか、代入する場合は{ name: 変数の名前, type: trueならば型推論可能、そうでない場合は変数の型 }、代入しない場合はnull
+ * @param shouldStatic 自動生成される関数をstaticにする必要があるかどうか
+ * @param indentLevel
+ * @returns 自動生成された関数の挿入位置、自動生成されなかった場合はfalse
  */
-function convertSwitch(tokens: Token[], insertIndex: number, assigningType: null | true | Type, indentLevel: number, changeToYieldReturn = false): number {
+function convertSwitch(tokens: Token[], insertIndex: number, assigningType: null | true | Type, shouldStatic: boolean, indentLevel: number, changeToYieldReturn = false): { start: number, end: number }[] | false {
   if (tokens.length === 0) {
-    return 0;
+    return false;
   }
   if (tokens[0].text !== 'switch') {
     throw new UnhandledError(tokens[0]);
@@ -38,7 +38,7 @@ function convertSwitch(tokens: Token[], insertIndex: number, assigningType: null
 
   const convertStartIndex = tokens.findIndex(token => token.id === removed[i].id);
   const convertEndIndex = tokens.findIndex(token => token.id === removed[leftBraceIndex - 1].id);
-  const endAt = convertRightSide(tokens.slice(convertStartIndex, convertEndIndex + 1), insertIndex, assigningType, indentLevel, false);
+  const endAt = convertRightSide(tokens.slice(convertStartIndex, convertEndIndex + 1), insertIndex, assigningType, shouldStatic, indentLevel);
   const unexpectedIndex = tokens.slice(convertStartIndex + endAt.endAt, convertEndIndex + 1).findIndex(token => token.category !== 'space' && token.category !== 'line_break' && token.category !== 'comment');
   if (unexpectedIndex !== -1)
     throw new SyntaxError(tokens.slice(endAt.endAt, convertEndIndex + 1)[unexpectedIndex]);
@@ -138,7 +138,7 @@ function convertSwitch(tokens: Token[], insertIndex: number, assigningType: null
 
         const convertStartIndex = tokens.findIndex(token => token.id === removed[i].id);
         const sliced = tokens.slice(convertStartIndex);
-        const endAt = convertRightSide(sliced, insertIndex, assigningType, indentLevel + 2, changeToYieldReturn);
+        const endAt = convertRightSide(sliced, insertIndex, assigningType, false, indentLevel + 2);
 
         converted.push(' '.repeat((indentLevel + 2) * indentCount));
         converted.push('break;\r\n');
@@ -158,8 +158,7 @@ function convertSwitch(tokens: Token[], insertIndex: number, assigningType: null
       if (isEnd.text === '}') {
         converted.push(' '.repeat(indentLevel * indentCount));
         converted.push('}\r\n');
-        const iAtTokens = tokens.findIndex(token => token.id === removed[isEndIndex.index].id);
-        return iAtTokens;
+        return false;
       } else if (isEnd.text === ',') {
         const isEndEndIndex = isNext(() => true, true, isEndIndex.index, removed, false, true) as { result: boolean, index: number };
         if (isEndEndIndex.index === -1)
@@ -167,8 +166,7 @@ function convertSwitch(tokens: Token[], insertIndex: number, assigningType: null
         if (removed[isEndEndIndex.index].text === '}') {
           converted.push(' '.repeat(indentLevel * indentCount));
           converted.push('}\r\n');
-          const iAtTokens = tokens.findIndex(token => token.id === removed[isEndEndIndex.index].id);
-          return iAtTokens;
+          return false;
         }
         i++;
       } else {
@@ -182,6 +180,7 @@ function convertSwitch(tokens: Token[], insertIndex: number, assigningType: null
     converted.push(' switch {\r\n');
     i = leftBraceIndex + 1;
 
+    let inserted: { start: number, end: number }[] | false = false;
     while (true) {
       let arrowFound = false;
       let arrowIndex = i;
@@ -236,6 +235,10 @@ function convertSwitch(tokens: Token[], insertIndex: number, assigningType: null
 
       const isBlock = removed[i].text === '{';
       if (isBlock) {
+        if (insertIndex === -1) {
+          throw new SyntaxError(removed[i], 'Cannot use block style switch case in this context');
+        }
+
         i = arrowIndex + 1;
 
         let braceCount = 1;
@@ -273,6 +276,10 @@ function convertSwitch(tokens: Token[], insertIndex: number, assigningType: null
 
         const toMove = converted.splice(firstConvertedLength);
         converted.splice(insertIndex, 0, ...toMove);
+        if (inserted === false) {
+          inserted = [];
+        }
+        inserted.push({ start: insertIndex, end: insertIndex + toMove.length });
         insertIndex += toMove.length;
 
         converted.push(`${fnName}(),\r\n`);
@@ -281,7 +288,7 @@ function convertSwitch(tokens: Token[], insertIndex: number, assigningType: null
       } else {
         const convertStartIndex = tokens.findIndex(token => token.id === removed[i].id);
         const sliced = tokens.slice(convertStartIndex);
-        const endAt = convertRightSide(sliced, insertIndex, assigningType, indentLevel + 2, false);
+        const endAt = convertRightSide(sliced, insertIndex, assigningType, false, indentLevel + 2);
 
         if (converted[converted.length - 1] === ';\r\n') {
           converted.pop();
@@ -300,8 +307,7 @@ function convertSwitch(tokens: Token[], insertIndex: number, assigningType: null
       if (isEnd.text === '}') {
         converted.push(' '.repeat(indentLevel * indentCount));
         converted.push('}');
-        const iAtTokens = tokens.findIndex(token => token.id === removed[isEndIndex.index].id);
-        return iAtTokens;
+        return inserted;
       } else if (isEnd.text === ',') {
         const isEndEndIndex = isNext(() => true, true, isEndIndex.index, removed, false, true) as { result: boolean, index: number };
         if (isEndEndIndex.index === -1)
@@ -309,8 +315,7 @@ function convertSwitch(tokens: Token[], insertIndex: number, assigningType: null
         if (removed[isEndEndIndex.index].text === '}') {
           converted.push(' '.repeat(indentLevel * indentCount));
           converted.push('}');
-          const iAtTokens = tokens.findIndex(token => token.id === removed[isEndEndIndex.index].id);
-          return iAtTokens;
+          return inserted;
         }
         i++;
       } else {
